@@ -1,0 +1,8 @@
+[server]
+# Increase upload size limit for large mobile photos
+# (Streamlit Cloud still may impose its own limits)
+maxUploadSize = 200
+
+[browser]
+# Telemetry setting (optional)
+gatherUsageStats = false

@@ -3,7 +3,7 @@ import tempfile
 from datetime import datetime
 
 import streamlit as st
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 
 from auth import load_users, load_users_from_json_string, load_users_from_mapping, verify_password
 from stego_timelock import extract_text_with_timelock, hide_text_with_timelock
@@ -16,15 +16,26 @@ def _save_upload_to_temp_raw(uploaded_file) -> str:
         return tmp.name
 
 
-def _save_cover_image_to_temp_png(uploaded_file) -> str:
+def _save_cover_image_to_temp_png(uploaded_file, *, max_side: int = 2048) -> str:
     """Save the uploaded cover image as a PNG for robust reading on servers.
 
     NOTE: Only use this for *cover images* (encoding). Do NOT use for stego images
     (decoding), as re-saving can destroy LSB embedded data.
     """
+    # Ensure the underlying file pointer is at the start (important on some browsers/devices)
+    try:
+        uploaded_file.seek(0)
+    except Exception:
+        pass
+
     with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
         image = Image.open(uploaded_file)
         image = image.convert("RGB")
+
+        # Reduce very large photos to improve stability on hosted environments
+        if max_side and (image.size[0] > max_side or image.size[1] > max_side):
+            image.thumbnail((max_side, max_side))
+
         image.save(tmp.name, format="PNG")
         return tmp.name
 
@@ -147,14 +158,25 @@ if mode == "Hide (Encode)":
             output_path = None
             try:
                 name_lower = (uploaded.name or "").lower()
-                if name_lower.endswith((".heic", ".heif")):
+                mime = getattr(uploaded, "type", "") or ""
+                size_bytes = getattr(uploaded, "size", None)
+
+                if (
+                    name_lower.endswith((".heic", ".heif"))
+                    or mime in {"image/heic", "image/heif", "image/heic-sequence", "image/heif-sequence"}
+                ):
                     st.error(
                         "Your phone image looks like HEIC/HEIF. Please convert it to JPG/PNG (or change camera setting to 'Most Compatible') and try again."
                     )
                     st.stop()
 
+                if isinstance(size_bytes, int) and size_bytes > 25 * 1024 * 1024:
+                    st.warning(
+                        "This image is quite large (>25MB). If upload fails on mobile data, try a smaller/compressed photo or Wi‑Fi."
+                    )
+
                 # Convert cover image to PNG for compatibility on Streamlit Cloud
-                input_path = _save_cover_image_to_temp_png(uploaded)
+                input_path = _save_cover_image_to_temp_png(uploaded, max_side=2048)
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as out:
                     output_path = out.name
 
@@ -178,14 +200,17 @@ if mode == "Hide (Encode)":
                     file_name="time_locked_image.png",
                     mime="image/png",
                 )
+            except UnidentifiedImageError:
+                st.error(
+                    "Could not read this image file. Tip: some mobile photos are HEIC/HEIF or WebP — try converting to JPG/PNG and upload again."
+                )
             except Exception as e:
-                msg = str(e)
-                if "Could not read image" in msg:
-                    msg = (
-                        msg
-                        + "\n\nTip: Mobile photos are sometimes HEIC/WebP. Try uploading a JPG/PNG instead."
-                    )
+                msg = str(e) or "Upload failed"
                 st.error(msg)
+                # Helpful diagnostics for debugging mobile issues
+                st.caption(
+                    f"Debug: name={getattr(uploaded, 'name', '')} mime={getattr(uploaded, 'type', '')} size={getattr(uploaded, 'size', '')}"
+                )
             finally:
                 # Best-effort cleanup of temp files
                 for p in [input_path, output_path]:

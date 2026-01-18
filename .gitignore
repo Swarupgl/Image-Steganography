@@ -5,5 +5,5 @@ __pycache__/
 # Local user database (do not commit)
 users.json
 
-# Streamlit local config
-.streamlit/
+# Streamlit secrets (do not commit)
+.streamlit/secrets.toml
