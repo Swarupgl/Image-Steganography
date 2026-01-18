@@ -1,54 +1,109 @@
-<<<<<<< HEAD
-# Image-Steganography
-=======
-# Time-Locked Image Steganography (Streamlit)
+## Image Steganography with Time-Lock (Streamlit)
 
-## Run locally
+A Streamlit web app for hiding an encrypted, time-locked message inside an image (LSB steganography), with per-user access control for Encode/Decode.
 
-1) Install deps
+### Key files
 
-- `C:\Users\Swarup\Desktop\mini_project\.venv\Scripts\python.exe -m pip install -r requirements.txt`
+- `streamlit_app.py` — Streamlit UI (login + Encode/Decode)
+- `stego_timelock.py` — core steganography + crypto logic
+- `auth.py` — user auth helpers (PBKDF2 password hashing + verify)
+- `manage_users.py` — CLI to add/remove/list users
+- `requirements.txt` — Python dependencies
 
-2) Create users (local)
+## Run locally (Windows)
 
-- Both encode + decode:
-  - `...python.exe manage_users.py add --username alice --permissions encode decode`
+1) Create/activate a virtual environment (optional if you already have one)
+
+- `python -m venv .venv`
+- `.\.venv\Scripts\Activate.ps1`
+
+2) Install dependencies
+
+- `python -m pip install -r requirements.txt`
+
+3) Create users (local)
+
+This writes `users.json` locally (this file is intentionally ignored by git).
+
+- Encode + Decode:
+  - `python manage_users.py add --username demo --permissions encode decode`
 - Decode only:
-  - `...python.exe manage_users.py add --username bob --permissions decode`
+  - `python manage_users.py add --username viewer --permissions decode`
+- List users:
+  - `python manage_users.py list`
 
-3) Start app
+4) Start the app
 
-- `...python.exe -m streamlit run streamlit_app.py`
+- `python -m streamlit run streamlit_app.py`
 
-## Free deployment options
+Open the local URL shown in the terminal (usually `http://localhost:8501`).
 
-### Option A: Streamlit Community Cloud (recommended)
+## Deploy for free (Streamlit Community Cloud)
 
-1) Push this folder to a GitHub repo (public).
-2) Go to Streamlit Community Cloud and deploy `streamlit_app.py`.
-3) Add a secret named `users_json` containing your users JSON.
+### 1) Push code to GitHub
 
-To generate it:
-- Create users locally with `manage_users.py` (this writes `users.json`).
-- Copy the full contents of `users.json` into the Cloud secret `users_json`.
+- Push the project to a GitHub repo.
+- Do not commit `users.json` (it is already in `.gitignore`).
 
-Example secret (you will paste your real hashed values):
+### 2) Create the app on Streamlit Cloud
 
-```
+1) Go to Streamlit Community Cloud
+2) Create a new app
+3) Select your GitHub repo + branch
+4) Set the main file to `streamlit_app.py`
+5) Deploy
+
+### 3) Configure users via Streamlit Secrets (TOML)
+
+Streamlit Cloud Secrets uses TOML format.
+
+1) On Streamlit Cloud: App → Settings → Secrets
+2) Add a key named `users_json` that contains the *entire* JSON from your local `users.json`.
+
+Example:
+
+```toml
+users_json = """
 {
   "users": {
-    "alice": {"password": "pbkdf2_sha256$...", "permissions": ["encode", "decode"]},
-    "bob": {"password": "pbkdf2_sha256$...", "permissions": ["decode"]}
+    "demo": {
+      "password": "pbkdf2_sha256$...",
+      "permissions": ["encode", "decode"]
+    },
+    "viewer": {
+      "password": "pbkdf2_sha256$...",
+      "permissions": ["decode"]
+    }
   }
 }
+"""
 ```
 
-### Option B: Hugging Face Spaces (free)
+Save the secrets and wait about a minute for changes to propagate.
 
-1) Create a new Space with **Streamlit** SDK.
-2) Upload your files (`streamlit_app.py`, `stego_timelock.py`, `auth.py`, `requirements.txt`, etc.).
-3) Set an environment variable named `USERS_JSON` with the same JSON content as above.
+## Troubleshooting
 
-Notes:
-- Don’t commit `users.json` publicly. Use `users_json` secret / `USERS_JSON` env var instead.
-- On free hosts, writing files at runtime often won’t persist; secrets/env vars are the reliable way.
+### Streamlit Cloud error: `ImportError: libGL.so.1`
+
+This happens when using GUI OpenCV wheels on a headless Linux server.
+This project uses `opencv-python-headless` in `requirements.txt` to avoid that.
+
+### Mobile upload works sometimes
+
+Common causes:
+
+- HEIC/HEIF photos (common on iPhone) are not reliably supported
+- Very large photos can fail on mobile data
+
+Fixes:
+
+- iPhone: Settings → Camera → Formats → **Most Compatible** (JPG)
+- Try converting the photo to JPG/PNG before uploading
+- Use Wi‑Fi for large images
+
+Important: for Decode, stego images are saved as raw bytes (no re-encoding) to preserve hidden LSB data.
+
+## Security notes (important)
+
+- Do not publish `users.json` publicly.
+- Even with time-lock logic, anyone who has the encrypted data *and* the correct key+PIN could bypass the UI checks by modifying their own copy of the code. If you need a non-bypassable time-lock, it requires a different design (server-controlled key release or a cryptographic timelock puzzle).
