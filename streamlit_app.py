@@ -3,15 +3,29 @@ import tempfile
 from datetime import datetime
 
 import streamlit as st
+from PIL import Image
 
 from auth import load_users, load_users_from_json_string, load_users_from_mapping, verify_password
 from stego_timelock import extract_text_with_timelock, hide_text_with_timelock
 
 
-def _save_upload_to_temp(uploaded_file) -> str:
+def _save_upload_to_temp_raw(uploaded_file) -> str:
     suffix = os.path.splitext(uploaded_file.name)[1] or ".png"
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         tmp.write(uploaded_file.getbuffer())
+        return tmp.name
+
+
+def _save_cover_image_to_temp_png(uploaded_file) -> str:
+    """Save the uploaded cover image as a PNG for robust reading on servers.
+
+    NOTE: Only use this for *cover images* (encoding). Do NOT use for stego images
+    (decoding), as re-saving can destroy LSB embedded data.
+    """
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
+        image = Image.open(uploaded_file)
+        image = image.convert("RGB")
+        image.save(tmp.name, format="PNG")
         return tmp.name
 
 
@@ -96,7 +110,7 @@ if not allowed_modes:
 mode = allowed_modes[0] if len(allowed_modes) == 1 else st.radio("Mode", allowed_modes, horizontal=True)
 
 if mode == "Hide (Encode)":
-    uploaded = st.file_uploader("Cover image", type=["png", "jpg", "jpeg", "bmp"])
+    uploaded = st.file_uploader("Cover image")
     secret_text = st.text_area("Secret text")
 
     user_key = st.text_input("User key", type="password")
@@ -132,7 +146,15 @@ if mode == "Hide (Encode)":
             input_path = None
             output_path = None
             try:
-                input_path = _save_upload_to_temp(uploaded)
+                name_lower = (uploaded.name or "").lower()
+                if name_lower.endswith((".heic", ".heif")):
+                    st.error(
+                        "Your phone image looks like HEIC/HEIF. Please convert it to JPG/PNG (or change camera setting to 'Most Compatible') and try again."
+                    )
+                    st.stop()
+
+                # Convert cover image to PNG for compatibility on Streamlit Cloud
+                input_path = _save_cover_image_to_temp_png(uploaded)
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as out:
                     output_path = out.name
 
@@ -157,7 +179,13 @@ if mode == "Hide (Encode)":
                     mime="image/png",
                 )
             except Exception as e:
-                st.error(str(e))
+                msg = str(e)
+                if "Could not read image" in msg:
+                    msg = (
+                        msg
+                        + "\n\nTip: Mobile photos are sometimes HEIC/WebP. Try uploading a JPG/PNG instead."
+                    )
+                st.error(msg)
             finally:
                 # Best-effort cleanup of temp files
                 for p in [input_path, output_path]:
@@ -168,7 +196,7 @@ if mode == "Hide (Encode)":
                             pass
 
 else:
-    uploaded = st.file_uploader("Stego image", type=["png", "jpg", "jpeg", "bmp"])
+    uploaded = st.file_uploader("Stego image")
     user_key = st.text_input("User key", type="password")
     pin = st.text_input("PIN", type="password")
 
@@ -180,7 +208,9 @@ else:
         else:
             input_path = None
             try:
-                input_path = _save_upload_to_temp(uploaded)
+                # IMPORTANT: Save stego image bytes as-is (no re-encoding),
+                # otherwise hidden LSB data can get destroyed.
+                input_path = _save_upload_to_temp_raw(uploaded)
                 result = extract_text_with_timelock(
                     stego_image=input_path,
                     user_key=user_key,
