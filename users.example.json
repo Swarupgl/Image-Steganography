@@ -1,0 +1,12 @@
+{
+  "users": {
+    "alice": {
+      "password": "pbkdf2_sha256$200000$REPLACE_SALT$REPLACE_HASH",
+      "permissions": ["encode", "decode"]
+    },
+    "bob": {
+      "password": "pbkdf2_sha256$200000$REPLACE_SALT$REPLACE_HASH",
+      "permissions": ["decode"]
+    }
+  }
+}

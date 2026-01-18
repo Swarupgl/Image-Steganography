@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+
+# Local user database (do not commit)
+users.json
+
+# Streamlit local config
+.streamlit/
